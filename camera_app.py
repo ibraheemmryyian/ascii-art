@@ -3,8 +3,7 @@ import numpy as np
 import tkinter as tk
 import threading
 
-# Configuration for a MUCH bigger and more detailed view
-# We use a higher resolution to capture face details
+# Configuration for the view - these will now be updated dynamically
 WIDGET_COLS = 160
 WIDGET_LINES = 60
 
@@ -22,7 +21,6 @@ def camera_loop(app):
         return
         
     try:
-        # Initialize CLAHE for better local contrast (makes faces pop)
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
         
         while app.running:
@@ -30,23 +28,17 @@ def camera_loop(app):
             if not ret:
                 continue
                 
-            # Convert to grayscale
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Flip horizontally for a mirror effect
             gray = cv2.flip(gray, 1)
-            
-            # Apply CLAHE to significantly boost contrast and reveal facial features
             gray = clahe.apply(gray)
             
-            # Optionally sharpen the image slightly
-            # kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            # gray = cv2.filter2D(gray, -1, kernel)
+            # Use current dynamic dimensions
+            current_cols = WIDGET_COLS
+            current_lines = WIDGET_LINES
             
-            # Resize to our large ASCII grid
-            resized = cv2.resize(gray, (WIDGET_COLS, WIDGET_LINES))
-            
-            latest_frame = resized.copy()
+            if current_cols > 0 and current_lines > 0:
+                resized = cv2.resize(gray, (current_cols, current_lines))
+                latest_frame = resized.copy()
             
     except Exception as e:
         print("Camera Thread Error:", e)
@@ -59,23 +51,22 @@ class CameraApp(tk.Tk):
         
         self.running = True
         self.title("ASCII Face Tracker Pro")
-        
-        # NOT a widget - standard windowed mode for "for fun" usage
         self.configure(bg='black')
+        self.geometry("1000x800")
         
-        # Set a reasonable initial size but allow resizing
-        self.geometry("1200x900")
-        
-        # Use a Text widget for high-performance rendering of large ASCII blocks
+        # Use a Text widget for high-performance rendering
         self.text_area = tk.Text(
             self,
             font=("Consolas", 7, "bold"),
-            fg="#00FFFF", # High-contrast Cyan
+            fg="#FFFFFF", # High-contrast White
             bg="black",
             borderwidth=0,
             highlightthickness=0
         )
         self.text_area.pack(expand=True, fill='both')
+        
+        # Bind the resize event
+        self.bind("<Configure>", self.on_resize)
         
         # Start camera capture thread
         self.camera_thread = threading.Thread(target=camera_loop, args=(self,), daemon=True)
@@ -83,6 +74,26 @@ class CameraApp(tk.Tk):
             
         # Start GUI update loop
         self.update_visualizer()
+
+    def on_resize(self, event):
+        global WIDGET_COLS, WIDGET_LINES
+        
+        # Get window dimensions
+        width = self.winfo_width()
+        height = self.winfo_height()
+        
+        # Approximate character dimensions for Consolas 7pt bold
+        # Width: ~5px, Height: ~12px
+        char_w = 6
+        char_h = 12
+        
+        # Calculate new grid size
+        new_cols = max(10, width // char_w)
+        new_lines = max(10, height // char_h)
+        
+        if new_cols != WIDGET_COLS or new_lines != WIDGET_LINES:
+            WIDGET_COLS = new_cols
+            WIDGET_LINES = new_lines
 
     def close_widget(self):
         self.running = False
@@ -95,6 +106,7 @@ class CameraApp(tk.Tk):
             return
             
         if latest_frame is not None:
+            # Match current frame dimensions
             # Map pixels to ASCII
             ascii_frame = []
             for row in latest_frame:
@@ -107,7 +119,7 @@ class CameraApp(tk.Tk):
             self.text_area.delete('1.0', tk.END)
             self.text_area.insert('1.0', full_frame)
             
-        # Schedule next update (~20 FPS = 50ms)
+        # Schedule next update
         self.after(50, self.update_visualizer)
 
 if __name__ == "__main__":
